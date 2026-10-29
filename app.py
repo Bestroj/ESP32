@@ -359,8 +359,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div id="set-rows"></div>
       <div class="set-row">
         <div class="name">เวลารอ</div>
-        <div><label>แจ้งเตือนเมื่อผิดปกติต่อเนื่อง (นาที)</label><input type="number" id="set-delay" min="1" max="240" step="1"></div>
-        <div><label>แจ้งเมื่ออ่านค่าไม่ได้ต่อเนื่อง (นาที)</label><input type="number" id="set-fail" min="1" max="240" step="1"></div>
+        <div><label>แจ้งเตือนเมื่อผิดปกติต่อเนื่อง (1–240 นาที)</label><input type="number" id="set-delay" min="1" max="240" step="1"></div>
+        <div><label>แจ้งเมื่ออ่านค่าไม่ได้ต่อเนื่อง (1–240 นาที)</label><input type="number" id="set-fail" min="1" max="240" step="1"></div>
       </div>
       <button class="save" id="set-save" onclick="saveSettings()">บันทึก</button>
       <span id="set-status"></span>
