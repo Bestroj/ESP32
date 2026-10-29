@@ -172,15 +172,15 @@ def debug_crops():
       <title>OCR Debug Crops</title>
       <style>
         body {
-          background: #f5f5f7; color: #1d1d1f; margin: 0; padding: 32px 16px;
+          background: #000000; color: #f5f5f7; color-scheme: dark; margin: 0; padding: 32px 16px;
           font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
           font-size: 15px; line-height: 1.47; -webkit-font-smoothing: antialiased;
         }
         h2 { font-size: 28px; font-weight: 600; letter-spacing: -0.28px; margin: 0 0 4px; }
-        .zone { display: inline-block; vertical-align: top; background: #fff; border: 1px solid rgba(0,0,0,0.08); border-radius: 18px; padding: 20px; margin: 16px 16px 0 0; text-align: center; }
+        .zone { display: inline-block; vertical-align: top; background: #1c1c1e; border: 1px solid rgba(255,255,255,0.06); border-radius: 18px; padding: 20px; margin: 16px 16px 0 0; text-align: center; }
         .zone img { height: 70px; background: #000; display: block; margin: 10px auto; border-radius: 8px; }
-        .zone code { background: #f5f5f7; padding: 2px 6px; border-radius: 5px; }
-        .muted { color: #6e6e73; font-size: 14px; }
+        .zone code { background: #2c2c2e; padding: 2px 6px; border-radius: 5px; }
+        .muted { color: #98989d; font-size: 14px; }
       </style>
     </head>
     <body>
@@ -261,12 +261,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ESP32 Incubator Monitor</title>
   <style>
-    /* โทนสีตามแนว Apple: พื้นเทาอ่อน การ์ดขาว ปุ่มสีฟ้าสีเดียว สีเขียว/ส้ม/แดงใช้บอกสถานะเท่านั้น */
+    /* โทนมืดตามแนว Apple: พื้นดำ การ์ดเทาเข้ม ปุ่มสีฟ้าสีเดียว สีเขียว/ส้ม/แดงใช้บอกสถานะเท่านั้น */
     :root {
-      --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --muted: #6e6e73; --hairline: #e0e0e0;
-      --blue: #0066cc; --blue-focus: #0071e3;
-      --ok: #248a3d; --warn: #c93400; --bad: #d70015;             /* ตัวหนังสือบนพื้นขาว */
-      --ok-line: #34c759; --warn-line: #ff9500; --bad-line: #ff3b30; /* เส้นขอบ/พื้นหลังจาง */
+      color-scheme: dark;
+      --bg: #000000; --card: #1c1c1e; --inset: #2c2c2e; --text: #f5f5f7; --muted: #98989d; --hairline: #3a3a3c;
+      --blue: #0071e3; --blue-focus: #2997ff;
+      --ok: #30d158; --warn: #ff9f0a; --bad: #ff453a;             /* ตัวหนังสือ */
+      --ok-line: #30d158; --warn-line: #ff9f0a; --bad-line: #ff453a; /* เส้นขอบ */
     }
     * { box-sizing: border-box; }
     body {
@@ -280,14 +281,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .sub { color: var(--muted); font-size: 14px; margin-top: 4px; }
     .badges { display: flex; gap: 8px; }
     .badge { font-size: 14px; font-weight: 600; padding: 6px 14px; border-radius: 9999px; }
-    .b-ok { color: var(--ok); background: rgba(52,199,89,0.14); }
-    .b-warn { color: var(--warn); background: rgba(255,149,0,0.16); }
-    .b-bad { color: var(--bad); background: rgba(255,59,48,0.12); }
-    .b-test { color: var(--blue); background: rgba(0,102,204,0.10); }
+    .b-ok { color: var(--ok); background: rgba(48,209,88,0.16); }
+    .b-warn { color: var(--warn); background: rgba(255,159,10,0.16); }
+    .b-bad { color: var(--bad); background: rgba(255,69,58,0.16); }
+    .b-test { color: var(--blue-focus); background: rgba(41,151,255,0.16); }
     .lastread { margin: 20px 0 24px; font-size: 17px; }
     .lastread b { font-weight: 600; font-variant-numeric: tabular-nums; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
-    .card { background: var(--card); border: 1px solid rgba(0,0,0,0.08); border-radius: 18px; padding: 24px; }
+    .card { background: var(--card); border: 1px solid rgba(255,255,255,0.06); border-radius: 18px; padding: 24px; }
     .card.pending { border: 2px solid var(--warn-line); padding: 23px; }
     .card.alerted, .card.fail { border: 2px solid var(--bad-line); padding: 23px; }
     .card.stale { opacity: 0.5; }
@@ -297,18 +298,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .unit { color: var(--muted); font-size: 21px; }
     .na { font-size: 28px; color: var(--muted); }
     .chip { display: inline-block; font-size: 14px; font-weight: 600; padding: 4px 12px; border-radius: 9999px; }
-    .c-normal { background: rgba(52,199,89,0.14); color: var(--ok); }
-    .c-pending { background: rgba(255,149,0,0.16); color: var(--warn); }
-    .c-alerted, .c-fail { background: rgba(255,59,48,0.12); color: var(--bad); }
-    .c-off { background: var(--bg); color: var(--muted); }
+    .c-normal { background: rgba(48,209,88,0.16); color: var(--ok); }
+    .c-pending { background: rgba(255,159,10,0.16); color: var(--warn); }
+    .c-alerted, .c-fail { background: rgba(255,69,58,0.16); color: var(--bad); }
+    .c-off { background: var(--inset); color: var(--muted); }
     .range { margin-top: 14px; font-size: 14px; color: var(--muted); }
-    .settings { margin-top: 24px; background: var(--card); border: 1px solid rgba(0,0,0,0.08); border-radius: 18px; padding: 20px 24px; }
+    .settings { margin-top: 24px; background: var(--card); border: 1px solid rgba(255,255,255,0.06); border-radius: 18px; padding: 20px 24px; }
     .settings summary { cursor: pointer; font-size: 17px; font-weight: 600; }
     .set-row { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 12px; align-items: end; margin-top: 16px; }
     .set-row label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 4px; }
     .set-row .name { font-weight: 600; padding-bottom: 10px; }
     .settings input {
-      width: 100%; padding: 10px 14px; border-radius: 11px; border: 1px solid var(--hairline); background: var(--card);
+      width: 100%; padding: 10px 14px; border-radius: 11px; border: 1px solid var(--hairline); background: var(--inset);
       color: var(--text); font: inherit; font-size: 17px; font-variant-numeric: tabular-nums;
     }
     .settings input:focus { outline: 2px solid var(--blue-focus); outline-offset: 0; border-color: transparent; }
