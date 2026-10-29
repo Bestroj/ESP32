@@ -2,6 +2,7 @@ import base64
 from datetime import datetime
 import io
 import os
+import random
 import re
 import time
 from flask import Flask, jsonify, render_template_string, request
@@ -37,6 +38,11 @@ system_data = {
     "pm_t": 0, "pm_c": 0, "pm_h": 0,                         # ผิดปกติมาแล้วกี่นาที
     "last_sync": 0,       # เวลาที่ Render ได้รับข้อมูลจากบอร์ดครั้งล่าสุด (epoch วินาที)
 }
+
+# ค่าตั้งแจ้งเตือนที่ผู้ใช้บันทึกจาก dashboard รอให้บอร์ดดึงไปใช้ (บอร์ดเก็บค่าจริงไว้ใน NVS)
+# แนบไปกับคำตอบของ /update_readings จนกว่าบอร์ดจะส่ง cfg_id เดียวกันกลับมา
+pending_cfg = None
+CFG_KEYS = ["t_min", "t_max", "c_min", "c_max", "h_min", "h_max", "delay"]
 
 OCR_CONFIG = r"--psm 7 -c tessedit_char_whitelist=0123456789.-"
 NUMBER_PATTERN = re.compile(r"^-?\d+(\.\d+)?$")
@@ -209,13 +215,37 @@ def update_readings():
     except ValueError:
       pass
 
+  global pending_cfg
   system_data["last_sync"] = int(time.time())
+  if pending_cfg and str(data.get("cfg_id")) == str(pending_cfg["cfg_id"]):
+    pending_cfg = None   # บอร์ดรับค่าแล้ว
+  return jsonify(dict(pending_cfg, success=True) if pending_cfg else {"success": True})
+
+
+@app.route("/api/config", methods=["POST"])
+def set_config():
+  global pending_cfg
+  data = request.get_json(silent=True) or {}
+  try:
+    cfg = {key: float(data[key]) for key in CFG_KEYS}
+  except (KeyError, TypeError, ValueError):
+    return jsonify({"success": False, "error": "กรอกตัวเลขให้ครบทุกช่อง"}), 400
+
+  for lo, hi, name in [("t_min", "t_max", "อุณหภูมิ"), ("c_min", "c_max", "CO2"), ("h_min", "h_max", "ความชื้น")]:
+    if cfg[lo] >= cfg[hi]:
+      return jsonify({"success": False, "error": "ขอบล่างของ" + name + "ต้องน้อยกว่าขอบบน"}), 400
+  if not (1 <= cfg["delay"] <= 240) or cfg["delay"] != int(cfg["delay"]):
+    return jsonify({"success": False, "error": "เวลารอแจ้งเตือนต้องเป็นจำนวนเต็ม 1-240 นาที"}), 400
+
+  cfg["delay"] = int(cfg["delay"])
+  cfg["cfg_id"] = random.randint(1, 9999999)   # ไม่เกินความละเอียดของ float บนบอร์ด
+  pending_cfg = cfg
   return jsonify({"success": True})
 
 
 @app.route("/api/data", methods=["GET"])
 def get_api_data():
-  return jsonify(dict(system_data, server_now=int(time.time())))
+  return jsonify(dict(system_data, server_now=int(time.time()), cfg_pending=pending_cfg is not None))
 
 
 DASHBOARD_HTML = """<!DOCTYPE html>
@@ -260,6 +290,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .c-alerted, .c-fail { background: rgba(239,68,68,0.15); color: var(--bad); }
     .c-off { background: rgba(100,116,139,0.2); color: var(--muted); }
     .range { margin-top: 12px; font-size: 0.85rem; color: var(--muted); }
+    .settings { margin-top: 20px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+    .settings summary { cursor: pointer; font-weight: 600; }
+    .set-row { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 10px; align-items: end; margin-top: 14px; }
+    .set-row label { font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 4px; }
+    .set-row .name { font-weight: 600; padding-bottom: 8px; }
+    .settings input { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 1rem; }
+    .save { margin-top: 16px; padding: 10px 18px; border: 0; border-radius: 6px; background: var(--ok); color: #04130d; font-weight: 700; font-size: 0.95rem; cursor: pointer; }
+    .save:disabled { opacity: 0.5; cursor: default; }
+    #set-status { margin-left: 12px; font-size: 0.9rem; }
     footer { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85rem; display: flex; flex-wrap: wrap; gap: 6px 24px; }
   </style>
 </head>
@@ -279,6 +318,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="lastread">อ่านค่าล่าสุดเมื่อ <b id="read-time">-</b> <span id="read-age" class="sub"></span></div>
 
     <div class="grid" id="grid"></div>
+
+    <details class="settings" id="settings">
+      <summary>ตั้งค่าการแจ้งเตือน</summary>
+      <div id="set-rows"></div>
+      <div class="set-row">
+        <div class="name">เวลารอ</div>
+        <div><label>แจ้งเตือนเมื่อผิดปกติต่อเนื่อง (นาที)</label><input type="number" id="set-delay" min="1" max="240" step="1"></div>
+        <div></div>
+      </div>
+      <button class="save" id="set-save" onclick="saveSettings()">บันทึก</button>
+      <span id="set-status"></span>
+    </details>
 
     <footer>
       <span>บอร์ดส่งข้อมูลล่าสุด: <span id="sync-time">-</span></span>
@@ -312,10 +363,57 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       return Math.floor(sec / 3600) + ' ชั่วโมงที่แล้ว';
     }
 
+    let last = null;
+    let waitingBoard = false;
+
+    function fillSettings() {
+      if (!last) return;
+      document.getElementById('set-rows').innerHTML = VARS.filter(v => last['st_' + v.key] !== 'off').map(v => `
+        <div class="set-row">
+          <div class="name">${v.name}</div>
+          <div><label>ขอบล่าง (${v.unit})</label><input type="number" step="any" id="set-${v.key}-min" value="${last[v.key + '_min']}"></div>
+          <div><label>ขอบบน (${v.unit})</label><input type="number" step="any" id="set-${v.key}-max" value="${last[v.key + '_max']}"></div>
+        </div>`).join('');
+      document.getElementById('set-delay').value = last.delay;
+      document.getElementById('set-status').textContent = '';
+    }
+    document.getElementById('settings').addEventListener('toggle', e => { if (e.target.open) fillSettings(); });
+
+    async function saveSettings() {
+      const status = document.getElementById('set-status');
+      const body = { delay: document.getElementById('set-delay').value };
+      VARS.forEach(v => {
+        const lo = document.getElementById('set-' + v.key + '-min');
+        const hi = document.getElementById('set-' + v.key + '-max');
+        body[v.key + '_min'] = lo ? lo.value : last[v.key + '_min'];   // ตัวแปรที่ปิดอยู่ใช้ค่าเดิม
+        body[v.key + '_max'] = hi ? hi.value : last[v.key + '_max'];
+      });
+      status.style.color = 'var(--muted)';
+      status.textContent = 'กำลังบันทึก...';
+      try {
+        const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const r = await res.json();
+        if (!r.success) { status.style.color = 'var(--bad)'; status.textContent = r.error || 'บันทึกไม่สำเร็จ'; return; }
+        waitingBoard = true;
+        status.style.color = 'var(--warn)';
+        status.textContent = 'บันทึกแล้ว รอบอร์ดรับค่า...';
+      } catch (e) {
+        status.style.color = 'var(--bad)';
+        status.textContent = 'เชื่อมต่อไม่ได้ ลองใหม่อีกครั้ง';
+      }
+    }
+
     async function refresh() {
       let d;
       try { d = await (await fetch('/api/data', { cache: 'no-store' })).json(); }
       catch (e) { return; }
+      last = d;
+      if (waitingBoard && !d.cfg_pending) {
+        waitingBoard = false;
+        const status = document.getElementById('set-status');
+        status.style.color = 'var(--ok)';
+        status.textContent = 'บอร์ดรับค่าใหม่แล้ว';
+      }
 
       const syncAge = d.last_sync ? d.server_now - d.last_sync : Infinity;
       const readAge = d.rt ? d.server_now - d.rt : Infinity;
