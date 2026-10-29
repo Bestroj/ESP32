@@ -32,7 +32,9 @@ system_data = {
     "ocr": "",
     "test": 0,
     "delay": 0,
+    "fail": 10,           # อ่านค่าไม่ได้ต่อเนื่องกี่นาทีจึงแจ้งเตือน
     "dev": "",
+    "ip": "",             # IP ของบอร์ดในวง Wi-Fi (ใช้เปิดหน้าติดตั้ง)
     "fw": "",
     "st_t": "normal", "st_c": "normal", "st_h": "normal",   # normal / pending / alerted / fail / off
     "pm_t": 0, "pm_c": 0, "pm_h": 0,                         # ผิดปกติมาแล้วกี่นาที
@@ -42,7 +44,8 @@ system_data = {
 # ค่าตั้งแจ้งเตือนที่ผู้ใช้บันทึกจาก dashboard รอให้บอร์ดดึงไปใช้ (บอร์ดเก็บค่าจริงไว้ใน NVS)
 # แนบไปกับคำตอบของ /update_readings จนกว่าบอร์ดจะส่ง cfg_id เดียวกันกลับมา
 pending_cfg = None
-CFG_KEYS = ["t_min", "t_max", "c_min", "c_max", "h_min", "h_max", "delay"]
+CFG_KEYS = ["t_min", "t_max", "c_min", "c_max", "h_min", "h_max", "delay", "fail"]
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1aKXN7INoNZrynT6NihNWgw424lyYEMo7BppxmKSpMaw/edit"
 
 OCR_CONFIG = r"--psm 7 -c tessedit_char_whitelist=0123456789.-"
 NUMBER_PATTERN = re.compile(r"^-?\d+(\.\d+)?$")
@@ -205,8 +208,8 @@ def update_readings():
   data = request.form if request.form else (request.get_json(silent=True) or request.args)
 
   float_keys = ["temp", "carbon", "hum", "t_min", "t_max", "c_min", "c_max", "h_min", "h_max"]
-  int_keys = ["en_t", "en_c", "en_h", "rt", "test", "delay", "pm_t", "pm_c", "pm_h"]
-  text_keys = ["ocr", "dev", "fw", "st_t", "st_c", "st_h"]
+  int_keys = ["en_t", "en_c", "en_h", "rt", "test", "delay", "fail", "pm_t", "pm_c", "pm_h"]
+  text_keys = ["ocr", "dev", "fw", "ip", "st_t", "st_c", "st_h"]
   for key in float_keys + int_keys + text_keys:
     value = data.get(key)
     if value is None:
@@ -242,8 +245,11 @@ def set_config():
       return jsonify({"success": False, "error": "ขอบล่างของ" + name + "ต้องน้อยกว่าขอบบน"}), 400
   if not (1 <= cfg["delay"] <= 240) or cfg["delay"] != int(cfg["delay"]):
     return jsonify({"success": False, "error": "เวลารอแจ้งเตือนต้องเป็นจำนวนเต็ม 1-240 นาที"}), 400
+  if not (1 <= cfg["fail"] <= 240) or cfg["fail"] != int(cfg["fail"]):
+    return jsonify({"success": False, "error": "เวลาแจ้งเมื่ออ่านค่าไม่ได้ต้องเป็นจำนวนเต็ม 1-240 นาที"}), 400
 
   cfg["delay"] = int(cfg["delay"])
+  cfg["fail"] = int(cfg["fail"])
   cfg["cfg_id"] = random.randint(1, 9999999)   # ไม่เกินความละเอียดของ float บนบอร์ด
   pending_cfg = cfg
   return jsonify({"success": True})
@@ -322,6 +328,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .save:disabled { opacity: 0.5; cursor: default; }
     #set-status { margin-left: 12px; font-size: 14px; font-weight: 600; }
     footer { margin-top: 28px; color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px 24px; }
+    footer .links { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px 20px; }
+    footer a { color: var(--blue-focus); text-decoration: none; }
     @media (max-width: 480px) {
       h1 { font-size: 28px; }
       .set-row { grid-template-columns: 1fr 1fr; }
@@ -352,7 +360,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="set-row">
         <div class="name">เวลารอ</div>
         <div><label>แจ้งเตือนเมื่อผิดปกติต่อเนื่อง (นาที)</label><input type="number" id="set-delay" min="1" max="240" step="1"></div>
-        <div></div>
+        <div><label>แจ้งเมื่ออ่านค่าไม่ได้ต่อเนื่อง (นาที)</label><input type="number" id="set-fail" min="1" max="240" step="1"></div>
       </div>
       <button class="save" id="set-save" onclick="saveSettings()">บันทึก</button>
       <span id="set-status"></span>
@@ -361,6 +369,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <footer>
       <span>บอร์ดส่งข้อมูลล่าสุด: <span id="sync-time">-</span></span>
       <span>สถานะ OCR: <span id="ocr">-</span></span>
+      <span class="links">
+        <a href="{{SHEET_URL}}" target="_blank" rel="noopener">ข้อมูลย้อนหลัง (Google Sheet)</a>
+        <a href="/debug_crops" target="_blank" rel="noopener">ภาพจากกล้อง (ผู้ติดตั้ง)</a>
+        <span id="setup-link"></span>
+      </span>
     </footer>
   </div>
 
@@ -402,13 +415,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <div><label>ขอบบน (${v.unit})</label><input type="number" step="any" id="set-${v.key}-max" value="${last[v.key + '_max']}"></div>
         </div>`).join('');
       document.getElementById('set-delay').value = last.delay;
+      document.getElementById('set-fail').value = last.fail;
       document.getElementById('set-status').textContent = '';
     }
     document.getElementById('settings').addEventListener('toggle', e => { if (e.target.open) fillSettings(); });
 
     async function saveSettings() {
       const status = document.getElementById('set-status');
-      const body = { delay: document.getElementById('set-delay').value };
+      const body = { delay: document.getElementById('set-delay').value, fail: document.getElementById('set-fail').value };
       VARS.forEach(v => {
         const lo = document.getElementById('set-' + v.key + '-min');
         const hi = document.getElementById('set-' + v.key + '-max');
@@ -456,6 +470,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('read-age').textContent = d.rt ? '(' + fmtAge(readAge) + ')' : '';
       document.getElementById('sync-time').textContent = d.last_sync ? fmtTime(d.last_sync) + ' (' + fmtAge(syncAge) + ')' : 'ยังไม่มีข้อมูล';
       document.getElementById('ocr').textContent = d.ocr || '-';
+      const setup = document.getElementById('setup-link');
+      setup.innerHTML = '';
+      if (d.ip && /^[0-9.]+$/.test(d.ip) && d.ip !== '0.0.0.0') {
+        const a = document.createElement('a');
+        a.href = 'http://' + d.ip + '/';
+        a.textContent = 'หน้าติดตั้ง http://' + d.ip;
+        setup.append(a, ' (ต้องต่อ Wi-Fi เดียวกับบอร์ด)');
+      }
 
       VARS.forEach(v => {
         const st = d['st_' + v.key] || 'normal';
@@ -495,7 +517,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
 @app.route("/dashboard", methods=["GET"])
 def dashboard():
-  return DASHBOARD_HTML
+  return DASHBOARD_HTML.replace("{{SHEET_URL}}", SHEET_URL)
 
 
 if __name__ == "__main__":
