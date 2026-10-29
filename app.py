@@ -404,7 +404,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     let last = null;
-    let waitingBoard = false;
+    let waitingCfg = null;   // ค่าที่เพิ่งบันทึก รอเทียบกับค่าที่บอร์ดรายงานกลับมา
+    const CFG_FIELDS = ['t_min', 't_max', 'c_min', 'c_max', 'h_min', 'h_max', 'delay', 'fail'];
 
     function fillSettings() {
       if (!last) return;
@@ -435,7 +436,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const r = await res.json();
         if (!r.success) { status.style.color = 'var(--bad)'; status.textContent = r.error || 'บันทึกไม่สำเร็จ'; return; }
-        waitingBoard = true;
+        waitingCfg = { values: body, since: Date.now() };
         status.style.color = 'var(--warn)';
         status.textContent = 'บันทึกแล้ว รอบอร์ดรับค่า...';
       } catch (e) {
@@ -444,17 +445,35 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }
     }
 
+    // ยืนยันว่าบอร์ดรับค่าแล้วจริง: Render ไม่มีค่าค้าง และค่าที่บอร์ดรายงานตรงกับที่บันทึก
+    // (ถ้า Render รีสตาร์ทระหว่างรอ ค่าค้างจะหายแต่บอร์ดยังใช้ค่าเดิม จึงต้องเทียบค่า)
+    function checkBoardConfig(d) {
+      const status = document.getElementById('set-status');
+      if (d.cfg_pending) {
+        if (Date.now() - waitingCfg.since > 60000) {
+          status.style.color = 'var(--warn)';
+          status.textContent = 'บอร์ดยังไม่ได้รับค่า ตรวจว่าบอร์ดออนไลน์อยู่ (ระบบจะส่งให้เองเมื่อบอร์ดกลับมา)';
+        }
+        return;
+      }
+      // บอร์ดรายงานทศนิยม 1 ตำแหน่ง จึงยอมให้ต่างกันเล็กน้อย
+      const same = CFG_FIELDS.every(k => Math.abs(Number(d[k]) - Number(waitingCfg.values[k])) < 0.06);
+      waitingCfg = null;
+      if (same) {
+        status.style.color = 'var(--ok)';
+        status.textContent = 'บอร์ดรับค่าใหม่แล้ว';
+      } else {
+        status.style.color = 'var(--bad)';
+        status.textContent = 'บอร์ดไม่ได้รับค่านี้ (ค่าที่บอร์ดใช้อยู่ยังเป็นค่าเดิม) กรุณาบันทึกใหม่';
+      }
+    }
+
     async function refresh() {
       let d;
       try { d = await (await fetch('/api/data', { cache: 'no-store' })).json(); }
       catch (e) { return; }
       last = d;
-      if (waitingBoard && !d.cfg_pending) {
-        waitingBoard = false;
-        const status = document.getElementById('set-status');
-        status.style.color = 'var(--ok)';
-        status.textContent = 'บอร์ดรับค่าใหม่แล้ว';
-      }
+      if (waitingCfg) checkBoardConfig(d);
 
       const syncAge = d.last_sync ? d.server_now - d.last_sync : Infinity;
       const readAge = d.rt ? d.server_now - d.rt : Infinity;
